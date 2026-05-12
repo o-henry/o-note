@@ -1,0 +1,14 @@
+.DS_Store
+node_modules/
+dist/
+build/
+.vite/
+.turbo/
+.env
+.env.*
+!.env.example
+target/
+coverage/
+playwright-report/
+test-results/
+*.log

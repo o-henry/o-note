@@ -1,0 +1,64 @@
+# Product Brief
+
+## Goal
+
+Build a fast, local-first note app that can replace the user's current Obsidian workflow while adding first-class support for rich `.html` artifacts.
+
+The app should support:
+
+- Markdown writing and rendering.
+- HTML artifact writing, rendering, storage, and search.
+- Fast search and navigation even with many notes.
+- Safe local rendering for arbitrary HTML notes.
+- A workflow that works naturally with Codex, agents, MCPs, and generated artifacts.
+
+## Background
+
+The current pain is not that Obsidian is bad. It is that a large `.md` file-based vault can become slow to index and less responsive as the number of files grows.
+
+The product direction is influenced by the "HTML is the new Markdown" discussion around agent-generated HTML artifacts:
+
+- Simon Willison summarizes Thariq Shihipar's argument as a case for HTML over Markdown when the output benefits from SVG diagrams, interactive widgets, in-page navigation, and richer presentation.
+- Thariq's example gallery frames HTML artifacts as self-contained files that replace walls of Markdown for planning, code review, design systems, prototypes, diagrams, reports, and custom editing interfaces.
+
+Sources:
+
+- https://x.com/trq212/status/2052809885763747935
+- https://simonwillison.net/2026/May/8/unreasonable-effectiveness-of-html/
+- https://thariqs.github.io/html-effectiveness/
+
+## Product Principles
+
+1. Speed is a feature.
+   - Opening, switching, and searching notes should feel immediate.
+   - Indexing must be incremental and backgrounded.
+
+2. HTML is a document format, not just a preview.
+   - A note may be Markdown, HTML, or a paired Markdown-plus-HTML artifact.
+   - HTML can include diagrams, tables, navigation, small interactive controls, and embedded styling.
+
+3. Local-first by default.
+   - The user's notes must remain available without a network connection.
+   - Sync can be added later, but the core data model should not depend on cloud services.
+
+4. Safe rendering beats powerful rendering by default.
+   - User-authored and agent-authored HTML must render in a sandbox.
+   - Dangerous APIs, network access, script behavior, and local file access must be explicitly constrained.
+
+5. Exportability matters.
+   - Notes should be exportable as `.md`, `.html`, and portable bundles.
+   - The app should avoid lock-in even if SQLite is the primary store.
+
+## Target Users
+
+- The user as the first customer: heavy note taker, Codex user, agent workflow builder.
+- Developers and researchers who generate structured artifacts with AI.
+- People who want Obsidian-like local ownership with faster indexing and richer generated documents.
+
+## Non-Goals For The First Version
+
+- Real-time collaborative editing.
+- Hosted multi-user SaaS.
+- Plugin marketplace.
+- Full browser replacement.
+- Perfect import of every Obsidian plugin behavior.
