@@ -1,16 +1,17 @@
 import { expect, test } from "@playwright/test";
 
-test("renders the Phase 5 artifact shell", async ({ page }) => {
+test("renders the Phase 6 reliability shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByText("o-note")).toBeVisible();
   await expect(page.getByRole("button", { name: "New MD" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note content" })).toBeVisible();
-  await expect(page.getByText("PHASE 5", { exact: true })).toBeVisible();
-  await expect(page.getByText(/artifact templates make plans/)).toBeVisible();
+  await expect(page.getByText("PHASE 6", { exact: true })).toBeVisible();
+  await expect(page.getByText(/repair paths keep the vault dependable/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Planning" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Import path" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Export path" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Backup path" })).toBeVisible();
   await page.getByRole("textbox", { name: "Search notes" }).fill("Obsidian");
   await page.getByRole("button", { name: "Open search result Obsidian import notes" }).click();
   await expect(page.getByRole("textbox", { name: "Note content" })).toHaveValue(/# Obsidian import notes/);

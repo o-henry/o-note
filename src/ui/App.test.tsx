@@ -8,18 +8,19 @@ describe("App core notes", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the Phase 5 local-first shell", async () => {
+  it("renders the Phase 6 local-first shell", async () => {
     render(<App />);
 
     expect(screen.getByText("o-note")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(await screen.findByText("HTML artifact workflow")).toBeInTheDocument();
-    expect(screen.getByText(/artifact templates make plans/)).toBeInTheDocument();
+    expect(screen.getByText(/repair paths keep the vault dependable/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Split" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Sandboxed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Planning" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Import path" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Export path" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Backup path" })).toBeInTheDocument();
   });
 
   it("creates, edits, renames, and deletes a Markdown note", async () => {

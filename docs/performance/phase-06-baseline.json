@@ -1,0 +1,15 @@
+{
+  "measuredAt": "2026-05-12T04:01:45.606Z",
+  "budgets": {
+    "searchWarm10kMs": 100,
+    "htmlPreviewMountMs": 250,
+    "warmLaunchMs": 700
+  },
+  "gates": {
+    "mediumManifestExists": true,
+    "bundleSizeWarnKb": 500,
+    "sqliteFtsDecision": "keep-sqlite-fts5-until-measured-miss"
+  },
+  "harnessOverheadMs": 2,
+  "status": "ok"
+}

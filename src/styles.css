@@ -275,6 +275,14 @@ a {
   line-height: 1.4;
 }
 
+.panel-note {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .search-results {
   display: grid;
   gap: 4px;

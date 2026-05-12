@@ -74,4 +74,13 @@ export type ExportReport = {
   filesWritten: number;
 };
 
+export type BackupInput = {
+  path: string;
+};
+
+export type ReliabilityReport = {
+  status: string;
+  detail: string;
+};
+
 export type RenderMode = "preview" | "source" | "split" | "exports" | "annotations" | "compare";

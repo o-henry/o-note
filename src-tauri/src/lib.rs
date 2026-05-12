@@ -3,8 +3,9 @@ pub mod storage;
 use std::sync::Mutex;
 use std::time::Duration;
 use storage::{
-    CreateNoteInput, ExportNoteInput, ExportReport, ImportPathInput, ImportReport, IndexHealth,
-    ListNotesQuery, NoteDetail, NoteSummary, SearchNotesQuery, SearchResult, UpdateNoteInput,
+    BackupInput, CreateNoteInput, ExportNoteInput, ExportReport, ImportPathInput, ImportReport,
+    IndexHealth, ListNotesQuery, NoteDetail, NoteSummary, ReliabilityReport, SearchNotesQuery,
+    SearchResult, UpdateNoteInput,
 };
 use tauri::{Emitter, Manager};
 
@@ -105,6 +106,28 @@ fn export_note(
     storage::export_note(&database, input).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn database_integrity(state: tauri::State<'_, AppState>) -> Result<ReliabilityReport, String> {
+    let database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::database_integrity(&database).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn backup_database(
+    state: tauri::State<'_, AppState>,
+    input: BackupInput,
+) -> Result<ReliabilityReport, String> {
+    let database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::backup_database(&database, std::path::Path::new(&input.path))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn repair_search_index(state: tauri::State<'_, AppState>) -> Result<ReliabilityReport, String> {
+    let database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::repair_search_index(&database).map_err(|error| error.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -132,7 +155,10 @@ pub fn run() {
             search_notes,
             index_health,
             import_path,
-            export_note
+            export_note,
+            database_integrity,
+            backup_database,
+            repair_search_index
         ])
         .run(tauri::generate_context!())
         .expect("failed to run o-note");

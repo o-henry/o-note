@@ -125,6 +125,22 @@ PRAGMA user_version = 3;
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
 "#;
 
+const RELIABILITY_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_recent
+  ON audit_log(created_at DESC, event_type);
+
+PRAGMA user_version = 4;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
+"#;
+
 pub fn open_database(path: &Path) -> Result<Connection> {
     let connection = Connection::open(path)?;
     run_migrations(&connection)?;
@@ -150,6 +166,11 @@ pub fn run_migrations(connection: &Connection) -> Result<()> {
 
     if user_version < 3 {
         connection.execute_batch(IMPORT_EXPORT_SCHEMA)?;
+        user_version = 3;
+    }
+
+    if user_version < 4 {
+        connection.execute_batch(RELIABILITY_SCHEMA)?;
     }
 
     Ok(())
@@ -255,6 +276,19 @@ pub struct ExportNoteInput {
 pub struct ExportReport {
     pub output_path: String,
     pub files_written: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupInput {
+    pub path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReliabilityReport {
+    pub status: String,
+    pub detail: String,
 }
 
 struct NoteLink {
@@ -501,6 +535,15 @@ pub fn process_index_jobs(connection: &Connection, batch_size: i64) -> Result<us
         }
     }
 
+    if count > 0 {
+        write_audit_log(
+            connection,
+            "index_batch",
+            "note_fts",
+            &format!("{{\"processed\":{count}}}"),
+        )?;
+    }
+
     Ok(count)
 }
 
@@ -615,6 +658,16 @@ pub fn import_path(
             run_id
         ],
     )?;
+    write_audit_log(
+        &tx,
+        "import",
+        &run_id,
+        &format!(
+            "{{\"notes\":{},\"attachments\":{}}}",
+            imported_notes.len(),
+            imported_attachments
+        ),
+    )?;
     tx.commit()?;
 
     Ok(ImportReport {
@@ -652,6 +705,7 @@ pub fn export_note(connection: &Connection, input: ExportNoteInput) -> Result<Ex
             ),
         )
         .map_err(io_error)?;
+        write_audit_log(connection, "export", &note.id, "{\"bundle\":true}")?;
         return Ok(ExportReport {
             output_path: bundle_dir.display().to_string(),
             files_written: 3,
@@ -660,9 +714,84 @@ pub fn export_note(connection: &Connection, input: ExportNoteInput) -> Result<Ex
 
     let output_path = output_root.join(file_name);
     fs::write(&output_path, &note.content).map_err(io_error)?;
+    write_audit_log(connection, "export", &note.id, "{\"bundle\":false}")?;
     Ok(ExportReport {
         output_path: output_path.display().to_string(),
         files_written: 1,
+    })
+}
+
+pub fn database_integrity(connection: &Connection) -> Result<ReliabilityReport> {
+    let detail: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    let status = if detail == "ok" { "ok" } else { "failed" }.to_string();
+
+    Ok(ReliabilityReport { status, detail })
+}
+
+pub fn backup_database(connection: &Connection, path: &Path) -> Result<ReliabilityReport> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(io_error)?;
+    }
+    if path.exists() {
+        fs::remove_file(path).map_err(io_error)?;
+    }
+    let escaped_path = path.display().to_string().replace('\'', "''");
+    connection.execute_batch(&format!("VACUUM INTO '{escaped_path}'"))?;
+    write_audit_log(
+        connection,
+        "backup",
+        &path.display().to_string(),
+        "{\"status\":\"complete\"}",
+    )?;
+
+    Ok(ReliabilityReport {
+        status: "ok".to_string(),
+        detail: path.display().to_string(),
+    })
+}
+
+pub fn repair_search_index(connection: &Connection) -> Result<ReliabilityReport> {
+    rebuild_search_index(connection)?;
+    write_audit_log(
+        connection,
+        "index_repair",
+        "note_fts",
+        "{\"status\":\"complete\"}",
+    )?;
+
+    Ok(ReliabilityReport {
+        status: "ok".to_string(),
+        detail: "search index rebuilt".to_string(),
+    })
+}
+
+pub fn prune_revisions(connection: &Connection, keep_per_note: i64) -> Result<ReliabilityReport> {
+    let keep = keep_per_note.max(1);
+    let removed = connection.execute(
+        "DELETE FROM note_revisions
+         WHERE id IN (
+           SELECT id FROM (
+             SELECT id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY note_id
+                      ORDER BY created_at DESC, id DESC
+                    ) AS revision_rank
+             FROM note_revisions
+           )
+           WHERE revision_rank > ?1
+         )",
+        params![keep],
+    )?;
+    write_audit_log(
+        connection,
+        "revision_prune",
+        "note_revisions",
+        &format!("{{\"removed\":{removed}}}"),
+    )?;
+
+    Ok(ReliabilityReport {
+        status: "ok".to_string(),
+        detail: format!("{removed} revisions removed"),
     })
 }
 
@@ -774,6 +903,25 @@ fn count_index_jobs(connection: &Connection, status: &str) -> Result<i64> {
         params![status],
         |row| row.get(0),
     )
+}
+
+fn write_audit_log(
+    connection: &Connection,
+    event_type: &str,
+    subject_id: &str,
+    payload_json: &str,
+) -> Result<()> {
+    connection.execute(
+        "INSERT INTO audit_log(id, event_type, subject_id, payload_json)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            Uuid::new_v4().to_string(),
+            event_type,
+            subject_id,
+            payload_json
+        ],
+    )?;
+    Ok(())
 }
 
 fn insert_revision(
@@ -1271,14 +1419,15 @@ mod tests {
                    'index_state',
                    'attachments',
                    'note_attachments',
-                   'import_runs'
+                   'import_runs',
+                   'audit_log'
                  )",
                 [],
                 |row| row.get(0),
             )
             .expect("table count query succeeds");
 
-        assert_eq!(count, 10);
+        assert_eq!(count, 11);
     }
 
     #[test]
@@ -1613,6 +1762,55 @@ mod tests {
         assert!(bundle_path.join("Export_Me.md").exists());
         assert!(bundle_path.join("metadata.json").exists());
         assert!(bundle_path.join("manifest.json").exists());
+    }
+
+    #[test]
+    fn integrity_backup_and_index_repair_work() {
+        let temp_dir = tempfile::tempdir().expect("temp dir exists");
+        let database_path = temp_dir.path().join("o-note.db");
+        let backup_path = temp_dir.path().join("backup.db");
+        let mut connection = open_database(&database_path).expect("database opens");
+        let note = create_note(
+            &mut connection,
+            CreateNoteInput {
+                title: "Repair target".to_string(),
+                format: "markdown".to_string(),
+                content: "searchable repair content".to_string(),
+            },
+        )
+        .expect("note created");
+        assert_eq!(
+            process_index_jobs(&connection, 10).expect("index processed"),
+            1
+        );
+        connection
+            .execute("DELETE FROM note_fts WHERE note_id = ?1", params![note.id])
+            .expect("delete fts row");
+
+        let repair = repair_search_index(&connection).expect("index repair");
+        assert_eq!(repair.status, "ok");
+        let results = search_notes(
+            &connection,
+            SearchNotesQuery {
+                query: "repair".to_string(),
+                limit: Some(10),
+                format: None,
+                tag: None,
+            },
+        )
+        .expect("search after repair");
+        assert_eq!(results.len(), 1);
+
+        let integrity = database_integrity(&connection).expect("integrity check");
+        assert_eq!(integrity.status, "ok");
+        let backup = backup_database(&connection, &backup_path).expect("backup database");
+        assert_eq!(backup.status, "ok");
+        assert!(backup_path.exists());
+
+        let audit_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))
+            .expect("audit count");
+        assert!(audit_count >= 2);
     }
 
     fn seed_note_metadata(connection: &mut Connection, id: &str, format: &str, content: &str) {

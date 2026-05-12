@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BackupInput,
   CreateNoteInput,
   ExportNoteInput,
   ExportReport,
@@ -8,6 +9,7 @@ import type {
   ImportReport,
   NoteDetail,
   NoteSummary,
+  ReliabilityReport,
   SearchNotesQuery,
   SearchResult,
   UpdateNoteInput,
@@ -29,6 +31,9 @@ type NotesApi = {
   indexHealth(): Promise<IndexHealth>;
   importPath(input: ImportPathInput): Promise<ImportReport>;
   exportNote(input: ExportNoteInput): Promise<ExportReport>;
+  databaseIntegrity(): Promise<ReliabilityReport>;
+  backupDatabase(input: BackupInput): Promise<ReliabilityReport>;
+  repairSearchIndex(): Promise<ReliabilityReport>;
 };
 
 declare global {
@@ -51,6 +56,9 @@ function tauriNotesApi(): NotesApi {
     indexHealth: () => invoke("index_health"),
     importPath: (input) => invoke("import_path", { input }),
     exportNote: (input) => invoke("export_note", { input }),
+    databaseIntegrity: () => invoke("database_integrity"),
+    backupDatabase: (input) => invoke("backup_database", { input }),
+    repairSearchIndex: () => invoke("repair_search_index"),
   };
 }
 
@@ -133,6 +141,15 @@ function memoryNotesApi(): NotesApi {
         outputPath: input.path,
         filesWritten: input.bundle ? 3 : 1,
       };
+    },
+    async databaseIntegrity() {
+      return { status: "ok", detail: "browser memory adapter" };
+    },
+    async backupDatabase(input) {
+      return { status: "ok", detail: input.path };
+    },
+    async repairSearchIndex() {
+      return { status: "ok", detail: "memory search refreshed" };
     },
   };
 }

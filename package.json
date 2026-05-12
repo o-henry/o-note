@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "bench:fixtures": "node bench/generate-fixtures.mjs",
     "bench:startup": "node bench/startup-baseline.mjs",
+    "bench:scale": "node bench/phase6-scale.mjs",
     "lint": "eslint ."
   },
   "dependencies": {

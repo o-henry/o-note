@@ -34,10 +34,12 @@ export function App() {
   const [indexHealth, setIndexHealth] = useState<IndexHealth>({ pending: 0, indexed: 0, failed: 0 });
   const [importPathValue, setImportPathValue] = useState("");
   const [exportPathValue, setExportPathValue] = useState("");
+  const [backupPathValue, setBackupPathValue] = useState("");
   const [annotationDraft, setAnnotationDraft] = useState("");
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [saveState, setSaveState] = useState("Idle");
   const [transferState, setTransferState] = useState("Idle");
+  const [reliabilityState, setReliabilityState] = useState("Unchecked");
   const visibleNotes = useMemo(() => notes.slice(0, 100), [notes]);
   const renderedMarkdown = useMemo(() => {
     if (activeNote?.format !== "markdown") return "";
@@ -252,6 +254,23 @@ export function App() {
     setSaveState("Annotated");
   }
 
+  async function runIntegrityCheck() {
+    const report = await notesApi.databaseIntegrity();
+    setReliabilityState(`${report.status}: ${report.detail}`);
+  }
+
+  async function backupToPath() {
+    if (!backupPathValue.trim()) return;
+    const report = await notesApi.backupDatabase({ path: backupPathValue.trim() });
+    setReliabilityState(`backup: ${report.detail}`);
+  }
+
+  async function repairIndex() {
+    const report = await notesApi.repairSearchIndex();
+    setReliabilityState(report.detail);
+    await notesApi.indexHealth().then(setIndexHealth).catch(() => {});
+  }
+
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -415,22 +434,44 @@ export function App() {
             </button>
           </div>
         </section>
+        <section className="sidebar-panel" aria-labelledby="reliability-heading">
+          <h2 id="reliability-heading">Reliability</h2>
+          <input
+            aria-label="Backup path"
+            className="search-input"
+            onChange={(event) => setBackupPathValue(event.currentTarget.value)}
+            placeholder="backup db path"
+            value={backupPathValue}
+          />
+          <div className="filter-row" aria-label="Reliability actions">
+            <button onClick={() => void runIntegrityCheck()} type="button">
+              Check
+            </button>
+            <button onClick={() => void backupToPath()} type="button">
+              Backup
+            </button>
+            <button onClick={() => void repairIndex()} type="button">
+              Repair
+            </button>
+          </div>
+          <p className="panel-note">{reliabilityState}</p>
+        </section>
       </aside>
 
       <section className="content-inset" aria-label="Current note">
         <header className="top-strip">
-          <span>PHASE 5</span>
+          <span>PHASE 6</span>
           <span>No cloud sync</span>
           <span>{saveState}</span>
         </header>
 
         <section className="report-head">
-          <p className="eyebrow">HTML ARTIFACTS</p>
+          <p className="eyebrow">RELIABILITY</p>
           <div>
             <h1>{activeNote?.title ?? "Loading local notes."}</h1>
             <p>
               Notes stay local-first with markdown and sandboxed HTML previews. Search uses the
-              content index, and artifact templates make plans, reviews, reports, and prototypes easy to steer.
+              content index, artifact workflows, backup, integrity checks, and repair paths keep the vault dependable.
             </p>
           </div>
         </section>
