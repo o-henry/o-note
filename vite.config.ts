@@ -12,6 +12,13 @@ export default defineConfig({
   build: {
     target: "es2022",
     minify: "esbuild",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "render-vendor": ["dompurify", "markdown-it"],
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",

@@ -15,6 +15,7 @@ describe("App core notes", () => {
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(await screen.findByText("HTML artifact workflow")).toBeInTheDocument();
     expect(screen.getByText(/Metadata lists stay separate from note bodies/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Split" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Sandboxed")).toBeInTheDocument();
   });
 

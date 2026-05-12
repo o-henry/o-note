@@ -8,4 +8,8 @@ test("renders the Phase 1 core notes shell", async ({ page }) => {
   await expect(page.getByRole("textbox", { name: "Note content" })).toBeVisible();
   await expect(page.getByText("PHASE 1", { exact: true })).toBeVisible();
   await expect(page.getByText(/Metadata lists stay separate from note bodies/)).toBeVisible();
+  await page.getByRole("tab", { name: "Preview" }).click();
+  const htmlPreview = page.getByLabel("HTML artifact preview");
+  await expect(htmlPreview).toBeVisible();
+  await expect(htmlPreview).toHaveAttribute("sandbox", "");
 });

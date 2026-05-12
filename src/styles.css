@@ -236,6 +236,16 @@ a {
   padding: 30px 32px;
 }
 
+.document-surface.render-mode-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.document-surface.render-mode-split .eyebrow,
+.document-surface.render-mode-split h2 {
+  grid-column: 1 / -1;
+}
+
 .document-surface h2 {
   margin: 0;
   font-size: 24px;
@@ -267,6 +277,36 @@ a {
 
 .editor:focus {
   border-color: var(--accent);
+}
+
+.preview-surface {
+  min-height: min(54vh, 620px);
+  border: 1px solid var(--line);
+  background: #f7f7f2;
+  color: #161616;
+}
+
+.markdown-preview {
+  overflow: auto;
+  padding: 18px;
+  line-height: 1.65;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3 {
+  line-height: 1.15;
+}
+
+.markdown-preview pre {
+  overflow: auto;
+  border: 1px solid #d4d4ca;
+  background: #efefe8;
+  padding: 12px;
+}
+
+.html-preview {
+  width: 100%;
 }
 
 .metric-grid {

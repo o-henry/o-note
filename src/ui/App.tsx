@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createSandboxDocument, isAllowedArtifactMessage, renderMarkdown } from "../rendering/render";
 import { notesApi } from "../services/notes";
-import type { IndexHealth, NoteDetail, NoteFormat, NoteSummary } from "../shared/domain";
+import type { IndexHealth, NoteDetail, NoteFormat, NoteSummary, RenderMode } from "../shared/domain";
 
 const health: IndexHealth[] = [
   { label: "Shell", value: "Ready", tone: "steady" },
@@ -14,8 +15,18 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeNote, setActiveNote] = useState<NoteDetail | null>(null);
   const [draft, setDraft] = useState("");
+  const [previewSource, setPreviewSource] = useState("");
+  const [renderMode, setRenderMode] = useState<RenderMode>("split");
   const [saveState, setSaveState] = useState("Idle");
   const visibleNotes = useMemo(() => notes.slice(0, 100), [notes]);
+  const renderedMarkdown = useMemo(() => {
+    if (activeNote?.format !== "markdown") return "";
+    return renderMarkdown(previewSource);
+  }, [activeNote?.format, previewSource]);
+  const sandboxDocument = useMemo(() => {
+    if (activeNote?.format !== "html") return "";
+    return createSandboxDocument(previewSource);
+  }, [activeNote?.format, previewSource]);
 
   const refreshNotes = useCallback(async (nextActiveId?: string | null) => {
     const summaries = await notesApi.listNotes({ limit: 100, offset: 0 });
@@ -38,6 +49,7 @@ export function App() {
       if (cancelled || !note) return;
       setActiveNote(note);
       setDraft(note.content);
+      setPreviewSource(note.content);
       setSaveState("Loaded");
     });
 
@@ -51,6 +63,7 @@ export function App() {
 
     setSaveState("Queued");
     const handle = window.setTimeout(() => {
+      setPreviewSource(draft);
       setSaveState("Saving");
       notesApi
         .updateNote({ id: activeNote.id, content: draft })
@@ -64,6 +77,17 @@ export function App() {
 
     return () => window.clearTimeout(handle);
   }, [activeNote, draft, refreshNotes]);
+
+  useEffect(() => {
+    const handle = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== "object") return;
+      setSaveState(isAllowedArtifactMessage(event.data) ? "Bridge allowed" : "Bridge blocked");
+    };
+
+    window.addEventListener("message", handle);
+
+    return () => window.removeEventListener("message", handle);
+  }, []);
 
   async function createNote(format: NoteFormat) {
     const created = await notesApi.createNote({
@@ -91,6 +115,25 @@ export function App() {
     setDraft("");
     setActiveId(null);
     await refreshNotes(null);
+  }
+
+  async function copySource() {
+    if (!activeNote) return;
+    await navigator.clipboard?.writeText(draft);
+    setSaveState("Copied");
+  }
+
+  function exportSource() {
+    if (!activeNote) return;
+    const extension = activeNote.format === "html" ? "html" : "md";
+    const blob = new Blob([draft], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${activeNote.title}.${extension}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setSaveState("Exported");
   }
 
   return (
@@ -162,8 +205,38 @@ export function App() {
         </section>
 
         <div className="tab-row" role="tablist" aria-label="Note modes">
-          <button className="tab is-active" type="button" role="tab" aria-selected="true">
-            Report
+          <button
+            className={`tab ${renderMode === "preview" ? "is-active" : ""}`}
+            type="button"
+            role="tab"
+            aria-selected={renderMode === "preview"}
+            onClick={() => setRenderMode("preview")}
+          >
+            Preview
+          </button>
+          <button
+            className={`tab ${renderMode === "source" ? "is-active" : ""}`}
+            type="button"
+            role="tab"
+            aria-selected={renderMode === "source"}
+            onClick={() => setRenderMode("source")}
+          >
+            Source
+          </button>
+          <button
+            className={`tab ${renderMode === "split" ? "is-active" : ""}`}
+            type="button"
+            role="tab"
+            aria-selected={renderMode === "split"}
+            onClick={() => setRenderMode("split")}
+          >
+            Split
+          </button>
+          <button className="tab" type="button" onClick={() => void copySource()}>
+            Copy
+          </button>
+          <button className="tab" type="button" onClick={exportSource}>
+            Export
           </button>
           <button className="tab" type="button" onClick={() => void renameActiveNote()}>
             Rename
@@ -174,16 +247,37 @@ export function App() {
         </div>
 
         <div className="work-grid">
-          <section className="document-surface" aria-labelledby="doc-heading">
+          <section
+            className={`document-surface render-mode-${renderMode}`}
+            aria-labelledby="doc-heading"
+          >
             <p className="eyebrow">{activeNote?.format.toUpperCase() ?? "NOTE"}</p>
             <h2 id="doc-heading">Source</h2>
-            <textarea
-              aria-label="Note content"
-              className="editor"
-              onChange={(event) => setDraft(event.currentTarget.value)}
-              spellCheck={false}
-              value={draft}
-            />
+            {renderMode !== "preview" ? (
+              <textarea
+                aria-label="Note content"
+                className="editor"
+                onChange={(event) => setDraft(event.currentTarget.value)}
+                spellCheck={false}
+                value={draft}
+              />
+            ) : null}
+            {renderMode !== "source" && activeNote?.format === "markdown" ? (
+              <article
+                aria-label="Markdown preview"
+                className="preview-surface markdown-preview"
+                dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
+              />
+            ) : null}
+            {renderMode !== "source" && activeNote?.format === "html" ? (
+              <iframe
+                aria-label="HTML artifact preview"
+                className="preview-surface html-preview"
+                sandbox=""
+                srcDoc={sandboxDocument}
+                title="HTML artifact preview"
+              />
+            ) : null}
           </section>
 
           <aside className="right-rail" aria-label="Sources and local status">
@@ -199,7 +293,7 @@ export function App() {
             <section>
               <h2>Selected</h2>
               <p>{activeNote ? `${activeNote.byteSize} bytes, ${activeNote.format}` : "No note selected"}</p>
-              <p>Body loaded only after selection. Sidebar rows use metadata summaries.</p>
+              <p>Preview source commits after typing settles. HTML runs in a static sandbox.</p>
             </section>
           </aside>
         </div>

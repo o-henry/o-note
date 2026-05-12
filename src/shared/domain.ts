@@ -30,3 +30,5 @@ export type UpdateNoteInput = {
   id: string;
   content: string;
 };
+
+export type RenderMode = "preview" | "source" | "split";
