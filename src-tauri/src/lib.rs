@@ -1,8 +1,12 @@
 pub mod storage;
 
 use std::sync::Mutex;
-use storage::{CreateNoteInput, ListNotesQuery, NoteDetail, NoteSummary, UpdateNoteInput};
-use tauri::Manager;
+use std::time::Duration;
+use storage::{
+    CreateNoteInput, IndexHealth, ListNotesQuery, NoteDetail, NoteSummary, SearchNotesQuery,
+    SearchResult, UpdateNoteInput,
+};
+use tauri::{Emitter, Manager};
 
 pub struct AppState {
     database: Mutex<rusqlite::Connection>,
@@ -62,6 +66,21 @@ fn delete_note(state: tauri::State<'_, AppState>, id: String) -> Result<(), Stri
     storage::delete_note(&database, &id).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn search_notes(
+    state: tauri::State<'_, AppState>,
+    query: SearchNotesQuery,
+) -> Result<Vec<SearchResult>, String> {
+    let database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::search_notes(&database, query).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn index_health(state: tauri::State<'_, AppState>) -> Result<IndexHealth, String> {
+    let database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::index_health(&database).map_err(|error| error.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -74,6 +93,7 @@ pub fn run() {
             app.manage(AppState {
                 database: Mutex::new(database),
             });
+            spawn_indexer(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -83,8 +103,27 @@ pub fn run() {
             get_note,
             update_note,
             rename_note,
-            delete_note
+            delete_note,
+            search_notes,
+            index_health
         ])
         .run(tauri::generate_context!())
         .expect("failed to run o-note");
+}
+
+fn spawn_indexer(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(250));
+        let state = app_handle.state::<AppState>();
+        let Ok(database) = state.database.lock() else {
+            continue;
+        };
+        let processed = storage::process_index_jobs(&database, 25).unwrap_or(0);
+
+        if processed > 0 {
+            if let Ok(health) = storage::index_health(&database) {
+                let _ = app_handle.emit("index-health", health);
+            }
+        }
+    });
 }

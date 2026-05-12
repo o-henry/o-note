@@ -1,5 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CreateNoteInput, NoteDetail, NoteSummary, UpdateNoteInput } from "../shared/domain";
+import type {
+  CreateNoteInput,
+  IndexHealth,
+  NoteDetail,
+  NoteSummary,
+  SearchNotesQuery,
+  SearchResult,
+  UpdateNoteInput,
+} from "../shared/domain";
 
 type ListNotesQuery = {
   limit?: number;
@@ -13,6 +21,8 @@ type NotesApi = {
   updateNote(input: UpdateNoteInput): Promise<NoteDetail>;
   renameNote(id: string, title: string): Promise<NoteSummary>;
   deleteNote(id: string): Promise<void>;
+  searchNotes(query: SearchNotesQuery): Promise<SearchResult[]>;
+  indexHealth(): Promise<IndexHealth>;
 };
 
 declare global {
@@ -31,6 +41,8 @@ function tauriNotesApi(): NotesApi {
     updateNote: (input) => invoke("update_note", { input }),
     renameNote: (id, title) => invoke("rename_note", { id, title }),
     deleteNote: (id) => invoke("delete_note", { id }),
+    searchNotes: (query) => invoke("search_notes", { query }),
+    indexHealth: () => invoke("index_health"),
   };
 }
 
@@ -76,6 +88,29 @@ function memoryNotesApi(): NotesApi {
     },
     async deleteNote(id) {
       notes = notes.filter((note) => note.id !== id);
+    },
+    async searchNotes(query) {
+      const normalized = query.query.trim().toLowerCase();
+      if (!normalized) return [];
+
+      return notes
+        .filter((note) => {
+          const haystack = `${note.title} ${note.content}`.toLowerCase();
+          const formatMatches = !query.format || note.format === query.format;
+          const tagMatches = !query.tag || note.content.includes(`#${query.tag}`);
+          return formatMatches && tagMatches && haystack.includes(normalized);
+        })
+        .slice(0, query.limit ?? 20)
+        .map((note) => ({
+          id: note.id,
+          title: note.title,
+          format: note.format,
+          updatedAt: note.updatedAt,
+          snippet: createSnippet(note.content, normalized),
+        }));
+    },
+    async indexHealth() {
+      return { pending: 0, indexed: notes.length, failed: 0 };
     },
   };
 }
@@ -136,4 +171,12 @@ function htmlSeed() {
     "  <p>Sandboxed previews arrive in Phase 2.</p>",
     "</section>",
   ].join("\n");
+}
+
+function createSnippet(content: string, query: string) {
+  const index = content.toLowerCase().indexOf(query);
+  if (index === -1) return content.slice(0, 80);
+  const start = Math.max(0, index - 24);
+  const end = Math.min(content.length, index + query.length + 48);
+  return content.slice(start, end);
 }

@@ -8,13 +8,13 @@ describe("App core notes", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the Phase 1 local-first shell", async () => {
+  it("renders the Phase 3 local-first shell", async () => {
     render(<App />);
 
     expect(screen.getByText("o-note")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(await screen.findByText("HTML artifact workflow")).toBeInTheDocument();
-    expect(screen.getByText(/Metadata lists stay separate from note bodies/)).toBeInTheDocument();
+    expect(screen.getByText(/Search uses the content index/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Split" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Sandboxed")).toBeInTheDocument();
   });
@@ -42,5 +42,18 @@ describe("App core notes", () => {
     await waitFor(() => {
       expect(screen.queryByText("Renamed from test")).not.toBeInTheDocument();
     });
+  });
+
+  it("searches note content and opens the matching note", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByRole("textbox", { name: "Search notes" }), "Obsidian");
+    await user.click(
+      await screen.findByRole("button", { name: "Open search result Obsidian import notes" }),
+    );
+
+    expect(await screen.findByDisplayValue(/# Obsidian import notes/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search notes" })).toHaveValue("");
   });
 });

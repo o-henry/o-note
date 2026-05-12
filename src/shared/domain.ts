@@ -14,7 +14,21 @@ export type NoteDetail = NoteSummary & {
   createdAt: string;
 };
 
+export type SearchResult = {
+  id: string;
+  title: string;
+  format: NoteFormat;
+  snippet: string;
+  updatedAt: string;
+};
+
 export type IndexHealth = {
+  pending: number;
+  indexed: number;
+  failed: number;
+};
+
+export type HealthRow = {
   label: string;
   value: string;
   tone: "steady" | "active" | "warn";
@@ -29,6 +43,13 @@ export type CreateNoteInput = {
 export type UpdateNoteInput = {
   id: string;
   content: string;
+};
+
+export type SearchNotesQuery = {
+  query: string;
+  limit?: number;
+  format?: NoteFormat;
+  tag?: string;
 };
 
 export type RenderMode = "preview" | "source" | "split";

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { createSandboxDocument, isAllowedArtifactMessage, renderMarkdown } from "../rendering/render";
 import { notesApi } from "../services/notes";
-import type { IndexHealth, NoteDetail, NoteFormat, NoteSummary, RenderMode } from "../shared/domain";
-
-const health: IndexHealth[] = [
-  { label: "Shell", value: "Ready", tone: "steady" },
-  { label: "Index", value: "Idle", tone: "steady" },
-  { label: "HTML", value: "Sandboxed", tone: "active" },
-  { label: "Storage", value: "Local", tone: "steady" },
-];
+import type {
+  HealthRow,
+  IndexHealth,
+  NoteDetail,
+  NoteFormat,
+  NoteSummary,
+  RenderMode,
+  SearchResult,
+} from "../shared/domain";
 
 export function App() {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -17,6 +19,11 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [previewSource, setPreviewSource] = useState("");
   const [renderMode, setRenderMode] = useState<RenderMode>("split");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFormat, setSearchFormat] = useState<NoteFormat | "all">("all");
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [indexHealth, setIndexHealth] = useState<IndexHealth>({ pending: 0, indexed: 0, failed: 0 });
   const [saveState, setSaveState] = useState("Idle");
   const visibleNotes = useMemo(() => notes.slice(0, 100), [notes]);
   const renderedMarkdown = useMemo(() => {
@@ -79,6 +86,43 @@ export function App() {
   }, [activeNote, draft, refreshNotes]);
 
   useEffect(() => {
+    const handle = window.setTimeout(() => {
+      notesApi
+        .searchNotes({
+          query: searchQuery,
+          limit: 20,
+          format: searchFormat === "all" ? undefined : searchFormat,
+        })
+        .then((results) => {
+          setSearchResults(results);
+          setSelectedSearchIndex(0);
+        })
+        .catch(() => setSearchResults([]));
+    }, 120);
+
+    return () => window.clearTimeout(handle);
+  }, [searchFormat, searchQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshIndexHealth = () => {
+      notesApi
+        .indexHealth()
+        .then((health) => {
+          if (!cancelled) setIndexHealth(health);
+        })
+        .catch(() => {});
+    };
+    refreshIndexHealth();
+    const handle = window.setInterval(refreshIndexHealth, 2_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(handle);
+    };
+  }, []);
+
+  useEffect(() => {
     const handle = (event: MessageEvent) => {
       if (!event.data || typeof event.data !== "object") return;
       setSaveState(isAllowedArtifactMessage(event.data) ? "Bridge allowed" : "Bridge blocked");
@@ -136,6 +180,40 @@ export function App() {
     setSaveState("Exported");
   }
 
+  function openSearchResult(result: SearchResult) {
+    setActiveId(result.id);
+    setSearchQuery("");
+    setSearchResults([]);
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedSearchIndex((index) => Math.min(index + 1, Math.max(searchResults.length - 1, 0)));
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedSearchIndex((index) => Math.max(index - 1, 0));
+    }
+
+    if (event.key === "Enter" && searchResults[selectedSearchIndex]) {
+      event.preventDefault();
+      openSearchResult(searchResults[selectedSearchIndex]);
+    }
+  }
+
+  const healthRows: HealthRow[] = [
+    { label: "Shell", value: "Ready", tone: "steady" },
+    {
+      label: "Index",
+      value: indexHealth.pending > 0 ? `${indexHealth.pending} queued` : "Idle",
+      tone: indexHealth.failed > 0 ? "warn" : indexHealth.pending > 0 ? "active" : "steady",
+    },
+    { label: "HTML", value: "Sandboxed", tone: "active" },
+    { label: "Storage", value: "Local", tone: "steady" },
+  ];
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Workspace navigation">
@@ -165,6 +243,48 @@ export function App() {
             New HTML
           </button>
         </div>
+        <section className="sidebar-panel" aria-labelledby="search-heading">
+          <h2 id="search-heading">Search</h2>
+          <input
+            aria-label="Search notes"
+            className="search-input"
+            onChange={(event) => setSearchQuery(event.currentTarget.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="/ search"
+            value={searchQuery}
+          />
+          <div className="filter-row" aria-label="Search format filter">
+            {(["all", "markdown", "html"] as const).map((format) => (
+              <button
+                className={searchFormat === format ? "is-active" : ""}
+                key={format}
+                onClick={() => setSearchFormat(format)}
+                type="button"
+              >
+                {format === "all" ? "All" : format.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {searchResults.length > 0 ? (
+            <div className="search-results">
+              {searchResults.map((result, index) => (
+                <button
+                  aria-label={`Open search result ${result.title}`}
+                  className={`search-result ${index === selectedSearchIndex ? "is-active" : ""}`}
+                  key={result.id}
+                  onClick={() => openSearchResult(result)}
+                  type="button"
+                >
+                  <strong>{result.title}</strong>
+                  <small>
+                    {result.format.toUpperCase()} / {new Date(result.updatedAt).toLocaleDateString()}
+                  </small>
+                  <span>{result.snippet.replace(/<\/?mark>/g, "")}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
         <section className="sidebar-panel" aria-labelledby="recent-heading">
           <h2 id="recent-heading">Recent</h2>
           <div className="note-list" data-total={notes.length}>
@@ -188,18 +308,18 @@ export function App() {
 
       <section className="content-inset" aria-label="Current note">
         <header className="top-strip">
-          <span>PHASE 1</span>
+          <span>PHASE 3</span>
           <span>No cloud sync</span>
           <span>{saveState}</span>
         </header>
 
         <section className="report-head">
-          <p className="eyebrow">CORE NOTES</p>
+          <p className="eyebrow">SEARCH INDEX</p>
           <div>
             <h1>{activeNote?.title ?? "Loading local notes."}</h1>
             <p>
-              Metadata lists stay separate from note bodies. The editor loads only the selected
-              note and autosaves in the background after typing settles.
+              Notes stay local-first with markdown and sandboxed HTML previews. Search uses the
+              content index so large vaults stay responsive while typing and switching notes.
             </p>
           </div>
         </section>
@@ -283,7 +403,7 @@ export function App() {
           <aside className="right-rail" aria-label="Sources and local status">
             <section>
               <h2>Health</h2>
-              {health.map((item) => (
+              {healthRows.map((item) => (
                 <div className={`health-row is-${item.tone}`} key={item.label}>
                   <span>{item.label}</span>
                   <strong>{item.value}</strong>
