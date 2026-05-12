@@ -66,6 +66,7 @@ a {
 .eyebrow,
 .top-strip,
 .nav-item,
+.action-grid button,
 .note-row small,
 .note-row em,
 .tab,
@@ -82,12 +83,14 @@ a {
 }
 
 .nav-stack,
-.note-list {
+.note-list,
+.action-grid {
   display: grid;
   gap: 4px;
 }
 
-.nav-item {
+.nav-item,
+.action-grid button {
   border: 1px solid transparent;
   padding: 10px 12px;
   color: var(--muted);
@@ -96,10 +99,21 @@ a {
 
 .nav-item.is-active,
 .nav-item:hover,
+.action-grid button:hover,
+.note-row.is-active,
 .note-row:hover {
   border-color: var(--line-strong);
   background: var(--panel-2);
   color: var(--text);
+}
+
+.action-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.action-grid button {
+  height: 36px;
+  background: transparent;
 }
 
 .sidebar-panel {
@@ -233,6 +247,26 @@ a {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.editor {
+  width: 100%;
+  min-height: min(54vh, 620px);
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--panel);
+  color: var(--text);
+  padding: 16px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  tab-size: 2;
+}
+
+.editor:focus {
+  border-color: var(--accent);
 }
 
 .metric-grid {
