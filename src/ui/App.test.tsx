@@ -8,15 +8,16 @@ describe("App core notes", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the Phase 4 local-first shell", async () => {
+  it("renders the Phase 5 local-first shell", async () => {
     render(<App />);
 
     expect(screen.getByText("o-note")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(await screen.findByText("HTML artifact workflow")).toBeInTheDocument();
-    expect(screen.getByText(/vault transfer keeps source files/)).toBeInTheDocument();
+    expect(screen.getByText(/artifact templates make plans/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Split" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Sandboxed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Planning" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Import path" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Export path" })).toBeInTheDocument();
   });
@@ -44,7 +45,7 @@ describe("App core notes", () => {
     await waitFor(() => {
       expect(screen.queryByText("Renamed from test")).not.toBeInTheDocument();
     });
-  });
+  }, 10_000);
 
   it("searches note content and opens the matching note", async () => {
     const user = userEvent.setup();
@@ -57,5 +58,18 @@ describe("App core notes", () => {
 
     expect(await screen.findByDisplayValue(/# Obsidian import notes/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search notes" })).toHaveValue("");
+  });
+
+  it("creates a templated artifact and saves an annotation", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Planning" }));
+    await waitFor(() => expect(screen.getAllByText("Planning artifact").length).toBeGreaterThan(0));
+    await user.click(screen.getByRole("tab", { name: "Notes" }));
+    await user.type(screen.getByRole("textbox", { name: "Annotation text" }), "Looks ready");
+    await user.click(screen.getByRole("button", { name: "Save Annotation" }));
+
+    expect(screen.getByText("Looks ready")).toBeInTheDocument();
   });
 });

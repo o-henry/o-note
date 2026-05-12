@@ -229,6 +229,52 @@ a {
   background: var(--panel-2);
 }
 
+.template-grid,
+.export-panel,
+.annotation-panel,
+.comparison-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.template-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.template-grid button,
+.export-panel button,
+.annotation-panel button,
+.comparison-grid button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.annotation-panel textarea {
+  min-height: 120px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  padding: 12px;
+  resize: vertical;
+}
+
+.comparison-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.comparison-grid small {
+  display: block;
+  margin-top: 8px;
+  color: var(--quiet);
+  line-height: 1.4;
+}
+
 .search-results {
   display: grid;
   gap: 4px;

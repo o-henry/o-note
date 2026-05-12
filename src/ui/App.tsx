@@ -12,6 +12,14 @@ import type {
   SearchResult,
 } from "../shared/domain";
 
+type ArtifactCategory = "planning" | "review" | "research" | "prototype";
+
+type Annotation = {
+  noteId: string;
+  text: string;
+  status: "open" | "resolved";
+};
+
 export function App() {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -26,6 +34,8 @@ export function App() {
   const [indexHealth, setIndexHealth] = useState<IndexHealth>({ pending: 0, indexed: 0, failed: 0 });
   const [importPathValue, setImportPathValue] = useState("");
   const [exportPathValue, setExportPathValue] = useState("");
+  const [annotationDraft, setAnnotationDraft] = useState("");
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [saveState, setSaveState] = useState("Idle");
   const [transferState, setTransferState] = useState("Idle");
   const visibleNotes = useMemo(() => notes.slice(0, 100), [notes]);
@@ -37,6 +47,19 @@ export function App() {
     if (activeNote?.format !== "html") return "";
     return createSandboxDocument(previewSource);
   }, [activeNote?.format, previewSource]);
+
+  const exportSource = useCallback(() => {
+    if (!activeNote) return;
+    const extension = activeNote.format === "html" ? "html" : "md";
+    const blob = new Blob([draft], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${activeNote.title}.${extension}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setSaveState("Exported");
+  }, [activeNote, draft]);
 
   const refreshNotes = useCallback(async (nextActiveId?: string | null) => {
     const summaries = await notesApi.listNotes({ limit: 100, offset: 0 });
@@ -126,15 +149,28 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const handle = (event: MessageEvent) => {
+    const handle = async (event: MessageEvent) => {
       if (!event.data || typeof event.data !== "object") return;
-      setSaveState(isAllowedArtifactMessage(event.data) ? "Bridge allowed" : "Bridge blocked");
+      if (!isAllowedArtifactMessage(event.data)) {
+        setSaveState("Bridge blocked");
+        return;
+      }
+
+      const message = event.data as { command: string; payload?: string };
+      setSaveState("Bridge allowed");
+      if (message.command.startsWith("copy_") && message.payload) {
+        await navigator.clipboard?.writeText(message.payload);
+        setSaveState("Bridge copied");
+      }
+      if (message.command === "export_html") {
+        exportSource();
+      }
     };
 
     window.addEventListener("message", handle);
 
     return () => window.removeEventListener("message", handle);
-  }, []);
+  }, [exportSource]);
 
   async function createNote(format: NoteFormat) {
     const created = await notesApi.createNote({
@@ -144,6 +180,17 @@ export function App() {
     });
     await refreshNotes(created.id);
     setActiveId(created.id);
+  }
+
+  async function createArtifactFromTemplate(category: ArtifactCategory) {
+    const created = await notesApi.createNote({
+      title: `${categoryLabel(category)} artifact`,
+      format: "html",
+      content: artifactTemplate(category),
+    });
+    await refreshNotes(created.id);
+    setActiveId(created.id);
+    setRenderMode("preview");
   }
 
   async function renameActiveNote() {
@@ -170,19 +217,6 @@ export function App() {
     setSaveState("Copied");
   }
 
-  function exportSource() {
-    if (!activeNote) return;
-    const extension = activeNote.format === "html" ? "html" : "md";
-    const blob = new Blob([draft], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${activeNote.title}.${extension}`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setSaveState("Exported");
-  }
-
   function openSearchResult(result: SearchResult) {
     setActiveId(result.id);
     setSearchQuery("");
@@ -206,6 +240,16 @@ export function App() {
       bundle,
     });
     setTransferState(`${report.filesWritten} files written`);
+  }
+
+  function saveAnnotation() {
+    if (!activeNote || !annotationDraft.trim()) return;
+    setAnnotations((items) => [
+      { noteId: activeNote.id, text: annotationDraft.trim(), status: "open" },
+      ...items,
+    ]);
+    setAnnotationDraft("");
+    setSaveState("Annotated");
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -265,6 +309,20 @@ export function App() {
             New HTML
           </button>
         </div>
+        <section className="sidebar-panel" aria-labelledby="templates-heading">
+          <h2 id="templates-heading">Templates</h2>
+          <div className="template-grid">
+            {(["planning", "review", "research", "prototype"] as const).map((category) => (
+              <button
+                key={category}
+                onClick={() => void createArtifactFromTemplate(category)}
+                type="button"
+              >
+                {categoryLabel(category)}
+              </button>
+            ))}
+          </div>
+        </section>
         <section className="sidebar-panel" aria-labelledby="search-heading">
           <h2 id="search-heading">Search</h2>
           <input
@@ -361,50 +419,37 @@ export function App() {
 
       <section className="content-inset" aria-label="Current note">
         <header className="top-strip">
-          <span>PHASE 4</span>
+          <span>PHASE 5</span>
           <span>No cloud sync</span>
           <span>{saveState}</span>
         </header>
 
         <section className="report-head">
-          <p className="eyebrow">IMPORT EXPORT</p>
+          <p className="eyebrow">HTML ARTIFACTS</p>
           <div>
             <h1>{activeNote?.title ?? "Loading local notes."}</h1>
             <p>
               Notes stay local-first with markdown and sandboxed HTML previews. Search uses the
-              content index, and vault transfer keeps source files, metadata, and artifacts portable.
+              content index, and artifact templates make plans, reviews, reports, and prototypes easy to steer.
             </p>
           </div>
         </section>
 
         <div className="tab-row" role="tablist" aria-label="Note modes">
-          <button
-            className={`tab ${renderMode === "preview" ? "is-active" : ""}`}
-            type="button"
-            role="tab"
-            aria-selected={renderMode === "preview"}
-            onClick={() => setRenderMode("preview")}
-          >
-            Preview
-          </button>
-          <button
-            className={`tab ${renderMode === "source" ? "is-active" : ""}`}
-            type="button"
-            role="tab"
-            aria-selected={renderMode === "source"}
-            onClick={() => setRenderMode("source")}
-          >
-            Source
-          </button>
-          <button
-            className={`tab ${renderMode === "split" ? "is-active" : ""}`}
-            type="button"
-            role="tab"
-            aria-selected={renderMode === "split"}
-            onClick={() => setRenderMode("split")}
-          >
-            Split
-          </button>
+          {(["preview", "source", "split", "exports", "annotations", "compare"] as const).map(
+            (mode) => (
+              <button
+                aria-selected={renderMode === mode}
+                className={`tab ${renderMode === mode ? "is-active" : ""}`}
+                key={mode}
+                onClick={() => setRenderMode(mode)}
+                role="tab"
+                type="button"
+              >
+                {modeLabel(mode)}
+              </button>
+            ),
+          )}
           <button className="tab" type="button" onClick={() => void copySource()}>
             Copy
           </button>
@@ -426,7 +471,7 @@ export function App() {
           >
             <p className="eyebrow">{activeNote?.format.toUpperCase() ?? "NOTE"}</p>
             <h2 id="doc-heading">Source</h2>
-            {renderMode !== "preview" ? (
+            {renderMode !== "preview" && renderMode !== "exports" && renderMode !== "annotations" && renderMode !== "compare" ? (
               <textarea
                 aria-label="Note content"
                 className="editor"
@@ -435,21 +480,68 @@ export function App() {
                 value={draft}
               />
             ) : null}
-            {renderMode !== "source" && activeNote?.format === "markdown" ? (
+            {renderMode !== "source" && renderMode !== "exports" && renderMode !== "annotations" && renderMode !== "compare" && activeNote?.format === "markdown" ? (
               <article
                 aria-label="Markdown preview"
                 className="preview-surface markdown-preview"
                 dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
               />
             ) : null}
-            {renderMode !== "source" && activeNote?.format === "html" ? (
+            {renderMode !== "source" && renderMode !== "exports" && renderMode !== "annotations" && renderMode !== "compare" && activeNote?.format === "html" ? (
               <iframe
                 aria-label="HTML artifact preview"
                 className="preview-surface html-preview"
-                sandbox=""
+                sandbox="allow-scripts"
                 srcDoc={sandboxDocument}
                 title="HTML artifact preview"
               />
+            ) : null}
+            {renderMode === "exports" ? (
+              <div className="preview-surface export-panel" aria-label="Artifact exports">
+                <button type="button" onClick={() => void copySource()}>
+                  Copy Source
+                </button>
+                <button type="button" onClick={exportSource}>
+                  Export Source
+                </button>
+                <button type="button" onClick={() => void navigator.clipboard?.writeText(draft)}>
+                  Copy Prompt
+                </button>
+                <button type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify({ title: activeNote?.title, content: draft }))}>
+                  Copy JSON
+                </button>
+              </div>
+            ) : null}
+            {renderMode === "annotations" ? (
+              <div className="preview-surface annotation-panel" aria-label="Artifact annotations">
+                <textarea
+                  aria-label="Annotation text"
+                  onChange={(event) => setAnnotationDraft(event.currentTarget.value)}
+                  placeholder="Review note"
+                  value={annotationDraft}
+                />
+                <button type="button" onClick={saveAnnotation}>
+                  Save Annotation
+                </button>
+                {annotations
+                  .filter((annotation) => annotation.noteId === activeNote?.id)
+                  .map((annotation, index) => (
+                    <p key={`${annotation.noteId}-${index}`}>{annotation.text}</p>
+                  ))}
+              </div>
+            ) : null}
+            {renderMode === "compare" ? (
+              <div className="preview-surface comparison-grid" aria-label="Artifact comparison">
+                {notes
+                  .filter((note) => note.format === "html")
+                  .slice(0, 6)
+                  .map((note) => (
+                    <button key={note.id} onClick={() => setActiveId(note.id)} type="button">
+                      <strong>{note.title}</strong>
+                      <small>Tradeoff: fast static scan before opening full iframe.</small>
+                    </button>
+                  ))}
+              </div>
             ) : null}
           </section>
 
@@ -466,11 +558,58 @@ export function App() {
             <section>
               <h2>Selected</h2>
               <p>{activeNote ? `${activeNote.byteSize} bytes, ${activeNote.format}` : "No note selected"}</p>
-              <p>Preview source commits after typing settles. HTML runs in a static sandbox.</p>
+              <p>Preview source commits after typing settles. HTML runs in an isolated script sandbox.</p>
             </section>
           </aside>
         </div>
       </section>
     </main>
   );
+}
+
+function categoryLabel(category: ArtifactCategory) {
+  const labels: Record<ArtifactCategory, string> = {
+    planning: "Planning",
+    review: "Review",
+    research: "Research",
+    prototype: "Prototype",
+  };
+
+  return labels[category];
+}
+
+function modeLabel(mode: RenderMode) {
+  const labels: Record<RenderMode, string> = {
+    preview: "Preview",
+    source: "Source",
+    split: "Split",
+    exports: "Exports",
+    annotations: "Notes",
+    compare: "Compare",
+  };
+
+  return labels[mode];
+}
+
+function artifactTemplate(category: ArtifactCategory) {
+  const title = `${categoryLabel(category)} Artifact`;
+  const payload = `Review ${categoryLabel(category).toLowerCase()} artifact`;
+
+  return [
+    "<!doctype html>",
+    '<section data-o-note-artifact-version="1" data-category="' + category + '">',
+    "  <style>",
+    "    body{font-family:Inter,system-ui,sans-serif;margin:0}",
+    "    .artifact{display:grid;gap:18px;max-width:900px}",
+    "    .panel{border:1px solid #222;padding:16px}",
+    "    button{border:1px solid #222;background:#fff;padding:8px 10px;font:12px ui-monospace,monospace;text-transform:uppercase}",
+    "  </style>",
+    '  <main class="artifact">',
+    `    <h1>${title}</h1>`,
+    '    <section class="panel"><h2>Context</h2><p>Summarize source context, tradeoffs, and decision pressure here.</p></section>',
+    '    <section class="panel"><h2>Review</h2><p>Use annotations in o-note to capture decisions without editing the artifact source.</p></section>',
+    `    <button onclick="parent.postMessage({version:1,noteId:'template',artifactId:'${category}',command:'copy_markdown',payload:'# ${payload}'}, '*')">Copy Prompt</button>`,
+    "  </main>",
+    "</section>",
+  ].join("\n");
 }

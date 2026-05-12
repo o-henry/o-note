@@ -13,12 +13,12 @@ describe("rendering", () => {
     expect(rendered).not.toContain("<script>");
   });
 
-  it("wraps HTML artifacts in a static sandbox document", () => {
+  it("wraps HTML artifacts in an isolated interactive sandbox document", () => {
     const document = createSandboxDocument("<h1>Artifact</h1><script>alert('x')</script>");
 
     expect(document).toContain("Content-Security-Policy");
-    expect(document).toContain("script-src 'none'");
-    expect(document).toContain("Static sandbox");
+    expect(document).toContain("script-src 'unsafe-inline'");
+    expect(document).toContain("Sandboxed artifact");
     expect(document).toContain("<h1>Artifact</h1>");
   });
 
@@ -29,6 +29,7 @@ describe("rendering", () => {
         noteId: "n-1",
         artifactId: "a-1",
         command: "copy_markdown",
+        payload: "# Export",
       }),
     ).toBe(true);
     expect(

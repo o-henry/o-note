@@ -74,4 +74,4 @@ export type ExportReport = {
   filesWritten: number;
 };
 
-export type RenderMode = "preview" | "source" | "split";
+export type RenderMode = "preview" | "source" | "split" | "exports" | "annotations" | "compare";
