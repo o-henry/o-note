@@ -1,5 +1,15 @@
 # Feature Roadmap
 
+Each phase has a detailed design document:
+
+- [Phase 0: Foundation](phases/phase-00-foundation.md)
+- [Phase 1: Core Notes](phases/phase-01-core-notes.md)
+- [Phase 2: Rendering](phases/phase-02-rendering.md)
+- [Phase 3: Search And Indexing](phases/phase-03-search-indexing.md)
+- [Phase 4: Import And Export](phases/phase-04-import-export.md)
+- [Phase 5: HTML Artifact Workflow](phases/phase-05-html-artifact-workflow.md)
+- [Phase 6: Reliability And Scale](phases/phase-06-reliability-scale.md)
+
 ## Phase 0: Foundation
 
 - Confirm product brief and technical stack.

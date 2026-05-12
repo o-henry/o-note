@@ -68,6 +68,8 @@ Initial budgets for the first usable build:
 
 Budgets can be revised only with measurement.
 
+See [Performance Contract](006-performance-contract.md) for hard rules, scale targets, and benchmark requirements.
+
 ## Codex Workflow
 
 - Read local context before changing code.
