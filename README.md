@@ -22,3 +22,4 @@ See:
 - [Technical Stack](docs/001-tech-stack.md)
 - [Development Rules](docs/002-development-rules.md)
 - [Feature Roadmap](docs/003-feature-roadmap.md)
+- [HTML Artifact Requirements](docs/004-html-artifact-requirements.md)

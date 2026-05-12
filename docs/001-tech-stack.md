@@ -12,6 +12,7 @@ Build o-note as a desktop-first, local-first app with a web UI architecture:
 - Search: SQLite FTS5 first, with Tantivy reserved for later advanced indexing
 - Markdown rendering: markdown-it or unified/remark on the UI side, with sanitization
 - HTML rendering: sandboxed iframe-based preview
+- Artifact interaction: postMessage bridge with explicit allowlisted commands
 - Tests: Vitest, Testing Library, Playwright, Rust unit tests
 - Package management: pnpm
 - CI: GitHub Actions
@@ -65,6 +66,13 @@ HTML:
 - Default to no network access.
 - Provide an explicit trusted mode later, if needed.
 
+Interactive artifacts:
+
+- Use a narrow `postMessage` bridge for copy/export events.
+- Allow artifact-to-app messages only for explicit, typed commands such as `copy_text`, `export_json`, or `request_asset`.
+- Never let artifact JavaScript call privileged Tauri commands directly.
+- Preserve a static fallback view when JavaScript is disabled.
+
 ## Performance Model
 
 - App startup should load shell UI and recent note metadata first.
@@ -73,6 +81,7 @@ HTML:
 - File imports should be chunked and cancellable.
 - Search should query FTS indexes, not scan documents.
 - UI lists should use virtualization when item counts grow.
+- Artifact previews should mount lazily and avoid re-rendering the iframe unless the source changed.
 
 ## Security Model
 
@@ -81,6 +90,7 @@ HTML:
 - Sandbox HTML previews.
 - Block local file access from rendered artifacts.
 - Avoid remote resource loading by default.
+- Validate every artifact-to-app message against a strict schema.
 - Keep secrets out of note content, logs, and crash reports.
 - Require tests for any code that changes rendering trust boundaries.
 

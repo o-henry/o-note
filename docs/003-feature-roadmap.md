@@ -23,6 +23,7 @@
 - Split editor/preview mode.
 - Full preview mode.
 - Copy/export source.
+- Static fallback rendering for HTML artifacts when JavaScript is disabled.
 
 ## Phase 3: Search And Indexing
 
@@ -45,6 +46,9 @@
 - Store artifact metadata.
 - Preview generated diagrams and interactive sections.
 - Provide safe artifact templates for reports, plans, reviews, dashboards, and explainers.
+- Add artifact export buttons for copying prompt text, Markdown, JSON, and diffs.
+- Add artifact categories: planning, code review, design, prototype, research, report, custom editor.
+- Support side-by-side comparison grids for exploration artifacts.
 
 ## Phase 6: Reliability And Scale
 
@@ -60,3 +64,4 @@
 - Should the first app expose raw HTML editing only, or also a structured artifact builder?
 - How much Obsidian compatibility is required for the first import?
 - Should links use Obsidian-style wikilinks, standard Markdown links, or both?
+- Should trusted HTML mode exist at all, or should o-note keep all HTML artifacts sandboxed forever?
