@@ -43,6 +43,16 @@ The active visual target is Bullpen-like: sidebar shell, zero-radius surfaces, f
 
 Before production UI implementation, inspect actual Bullpen source files or screenshots and write a local style contract. Do not claim visual fidelity without browser verification.
 
+## Figma & Design System Rules
+
+- When a Figma file is provided, treat Figma MCP output as reference context and translate it into this app's React, TypeScript, Vite, Tauri, and CSS conventions.
+- Do not paste generated Tailwind code into the app; map visual intent to `src/styles.css` variables and existing component structure.
+- Bullpen fidelity is the active house style unless the user explicitly replaces it with a new design source.
+- Preserve zero-radius controls, flat hairline borders, dark restrained surfaces, 17rem sidebar rhythm, mono uppercase microcopy, and underline tabs.
+- Avoid gradients, blur blobs, glass effects, rounded SaaS cards, marketing hero layouts, decorative illustrations, and one-hue purple/blue palettes.
+- New reusable UI pieces belong under `src/ui/` with PascalCase component names and typed props; keep feature logic separate from styling-only extraction.
+- UI work must include role/text-stable accessibility and browser or Playwright visual checks before claiming completion.
+
 ## Engineering Rules
 
 - Prefer boring durable data models.

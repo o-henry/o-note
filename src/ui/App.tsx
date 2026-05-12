@@ -471,7 +471,7 @@ export function App() {
             <h1>{activeNote?.title ?? "Loading local notes."}</h1>
             <p>
               Notes stay local-first with markdown and sandboxed HTML previews. Search uses the
-              content index, artifact workflows, backup, integrity checks, and repair paths keep the vault dependable.
+              content index. Artifact workflows, backups, integrity checks, and repair paths keep the vault dependable.
             </p>
           </div>
         </section>
