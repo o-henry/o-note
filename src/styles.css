@@ -207,6 +207,28 @@ a {
   color: var(--text);
 }
 
+.filter-row button:disabled {
+  color: var(--quiet);
+  cursor: default;
+}
+
+.wide-command {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.wide-command:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-2);
+}
+
 .search-results {
   display: grid;
   gap: 4px;

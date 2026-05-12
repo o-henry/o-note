@@ -3,13 +3,14 @@ pub mod storage;
 use std::sync::Mutex;
 use std::time::Duration;
 use storage::{
-    CreateNoteInput, IndexHealth, ListNotesQuery, NoteDetail, NoteSummary, SearchNotesQuery,
-    SearchResult, UpdateNoteInput,
+    CreateNoteInput, ExportNoteInput, ExportReport, ImportPathInput, ImportReport, IndexHealth,
+    ListNotesQuery, NoteDetail, NoteSummary, SearchNotesQuery, SearchResult, UpdateNoteInput,
 };
 use tauri::{Emitter, Manager};
 
 pub struct AppState {
     database: Mutex<rusqlite::Connection>,
+    app_data_dir: std::path::PathBuf,
 }
 
 #[tauri::command]
@@ -81,6 +82,29 @@ fn index_health(state: tauri::State<'_, AppState>) -> Result<IndexHealth, String
     storage::index_health(&database).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn import_path(
+    state: tauri::State<'_, AppState>,
+    input: ImportPathInput,
+) -> Result<ImportReport, String> {
+    let mut database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::import_path(
+        &mut database,
+        std::path::Path::new(&input.path),
+        &state.app_data_dir.join("attachments"),
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn export_note(
+    state: tauri::State<'_, AppState>,
+    input: ExportNoteInput,
+) -> Result<ExportReport, String> {
+    let database = state.database.lock().map_err(|error| error.to_string())?;
+    storage::export_note(&database, input).map_err(|error| error.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -92,6 +116,7 @@ pub fn run() {
             let database = storage::open_database(&data_dir.join("o-note.db"))?;
             app.manage(AppState {
                 database: Mutex::new(database),
+                app_data_dir: data_dir,
             });
             spawn_indexer(app.handle().clone());
             Ok(())
@@ -105,7 +130,9 @@ pub fn run() {
             rename_note,
             delete_note,
             search_notes,
-            index_health
+            index_health,
+            import_path,
+            export_note
         ])
         .run(tauri::generate_context!())
         .expect("failed to run o-note");

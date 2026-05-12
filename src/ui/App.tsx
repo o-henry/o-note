@@ -24,7 +24,10 @@ export function App() {
   const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [indexHealth, setIndexHealth] = useState<IndexHealth>({ pending: 0, indexed: 0, failed: 0 });
+  const [importPathValue, setImportPathValue] = useState("");
+  const [exportPathValue, setExportPathValue] = useState("");
   const [saveState, setSaveState] = useState("Idle");
+  const [transferState, setTransferState] = useState("Idle");
   const visibleNotes = useMemo(() => notes.slice(0, 100), [notes]);
   const renderedMarkdown = useMemo(() => {
     if (activeNote?.format !== "markdown") return "";
@@ -186,6 +189,25 @@ export function App() {
     setSearchResults([]);
   }
 
+  async function importFromPath() {
+    if (!importPathValue.trim()) return;
+    setTransferState("Importing");
+    const report = await notesApi.importPath({ path: importPathValue.trim() });
+    setTransferState(`${report.importedNotes} notes / ${report.importedAttachments} files`);
+    await refreshNotes();
+  }
+
+  async function exportActiveNote(bundle: boolean) {
+    if (!activeNote || !exportPathValue.trim()) return;
+    setTransferState("Exporting");
+    const report = await notesApi.exportNote({
+      id: activeNote.id,
+      path: exportPathValue.trim(),
+      bundle,
+    });
+    setTransferState(`${report.filesWritten} files written`);
+  }
+
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -304,22 +326,53 @@ export function App() {
             ))}
           </div>
         </section>
+        <section className="sidebar-panel" aria-labelledby="transfer-heading">
+          <h2 id="transfer-heading">Transfer</h2>
+          <input
+            aria-label="Import path"
+            className="search-input"
+            onChange={(event) => setImportPathValue(event.currentTarget.value)}
+            placeholder="vault path"
+            value={importPathValue}
+          />
+          <button className="wide-command" onClick={() => void importFromPath()} type="button">
+            Import
+          </button>
+          <input
+            aria-label="Export path"
+            className="search-input"
+            onChange={(event) => setExportPathValue(event.currentTarget.value)}
+            placeholder="export path"
+            value={exportPathValue}
+          />
+          <div className="filter-row" aria-label="Export mode">
+            <button onClick={() => void exportActiveNote(false)} type="button">
+              Source
+            </button>
+            <button onClick={() => void exportActiveNote(true)} type="button">
+              Bundle
+            </button>
+            <button disabled type="button">
+              {transferState}
+            </button>
+          </div>
+        </section>
       </aside>
 
       <section className="content-inset" aria-label="Current note">
         <header className="top-strip">
-          <span>PHASE 3</span>
+          <span>PHASE 4</span>
           <span>No cloud sync</span>
           <span>{saveState}</span>
         </header>
 
         <section className="report-head">
-          <p className="eyebrow">SEARCH INDEX</p>
+          <p className="eyebrow">IMPORT EXPORT</p>
           <div>
             <h1>{activeNote?.title ?? "Loading local notes."}</h1>
             <p>
               Notes stay local-first with markdown and sandboxed HTML previews. Search uses the
-              content index so large vaults stay responsive while typing and switching notes.
+              content index, and vault transfer keeps source files, metadata, and artifacts portable.
             </p>
           </div>
         </section>

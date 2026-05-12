@@ -52,4 +52,26 @@ export type SearchNotesQuery = {
   tag?: string;
 };
 
+export type ImportPathInput = {
+  path: string;
+};
+
+export type ImportReport = {
+  runId: string;
+  importedNotes: number;
+  importedAttachments: number;
+  skippedFiles: number;
+};
+
+export type ExportNoteInput = {
+  id: string;
+  path: string;
+  bundle: boolean;
+};
+
+export type ExportReport = {
+  outputPath: string;
+  filesWritten: number;
+};
+
 export type RenderMode = "preview" | "source" | "split";

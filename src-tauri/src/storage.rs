@@ -1,7 +1,8 @@
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const SCHEMA: &str = r#"
@@ -91,6 +92,39 @@ PRAGMA user_version = 2;
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
 "#;
 
+const IMPORT_EXPORT_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  content_hash TEXT NOT NULL UNIQUE,
+  byte_size INTEGER NOT NULL,
+  original_path TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  ref_count INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS note_attachments (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+  relative_path TEXT NOT NULL,
+  PRIMARY KEY(note_id, attachment_id, relative_path)
+);
+
+CREATE TABLE IF NOT EXISTS import_runs (
+  id TEXT PRIMARY KEY,
+  root_path TEXT NOT NULL,
+  status TEXT NOT NULL,
+  imported_notes INTEGER NOT NULL DEFAULT 0,
+  imported_attachments INTEGER NOT NULL DEFAULT 0,
+  skipped_files INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+PRAGMA user_version = 3;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
+"#;
+
 pub fn open_database(path: &Path) -> Result<Connection> {
     let connection = Connection::open(path)?;
     run_migrations(&connection)?;
@@ -105,11 +139,17 @@ pub fn open_memory_database() -> Result<Connection> {
 
 pub fn run_migrations(connection: &Connection) -> Result<()> {
     connection.execute_batch(SCHEMA)?;
-    let user_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let mut user_version: i64 =
+        connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if user_version < 2 {
         connection.execute_batch(SEARCH_SCHEMA)?;
         rebuild_search_index(connection)?;
+        user_version = 2;
+    }
+
+    if user_version < 3 {
+        connection.execute_batch(IMPORT_EXPORT_SCHEMA)?;
     }
 
     Ok(())
@@ -187,10 +227,51 @@ pub struct IndexHealth {
     pub failed: i64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPathInput {
+    pub path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportReport {
+    pub run_id: String,
+    pub imported_notes: i64,
+    pub imported_attachments: i64,
+    pub skipped_files: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportNoteInput {
+    pub id: String,
+    pub path: String,
+    pub bundle: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportReport {
+    pub output_path: String,
+    pub files_written: i64,
+}
+
 struct NoteLink {
     target: String,
     link_type: String,
     anchor_text: String,
+}
+
+struct ImportedNote {
+    id: String,
+    source_path: PathBuf,
+    format: String,
+    title: String,
+    content: String,
+    content_hash: String,
+    frontmatter: Vec<(String, String)>,
+    links: Vec<NoteLink>,
 }
 
 pub fn create_note(connection: &mut Connection, input: CreateNoteInput) -> Result<NoteDetail> {
@@ -432,6 +513,156 @@ pub fn index_health(connection: &Connection) -> Result<IndexHealth> {
         pending,
         indexed,
         failed,
+    })
+}
+
+pub fn import_path(
+    connection: &mut Connection,
+    root_path: &Path,
+    attachments_dir: &Path,
+) -> Result<ImportReport> {
+    let run_id = Uuid::new_v4().to_string();
+    let manifest = scan_import_manifest(root_path)?;
+    fs::create_dir_all(attachments_dir).map_err(io_error)?;
+
+    connection.execute(
+        "INSERT INTO import_runs(id, root_path, status) VALUES (?1, ?2, 'running')",
+        params![run_id, root_path.display().to_string()],
+    )?;
+
+    let imported_notes = manifest
+        .iter()
+        .filter(|path| is_note_path(path))
+        .map(|path| parse_imported_note(root_path, path))
+        .collect::<Result<Vec<_>>>()?;
+    let tx = connection.transaction()?;
+
+    for note in &imported_notes {
+        tx.execute(
+            "INSERT INTO notes(id, title, format, metadata_json)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                note.id,
+                note.title,
+                note.format,
+                import_metadata_json(root_path, note)
+            ],
+        )?;
+    }
+
+    for note in &imported_notes {
+        tx.execute(
+            "INSERT INTO note_bodies(note_id, content, content_hash, byte_size)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                note.id,
+                note.content,
+                note.content_hash,
+                note.content.len() as i64
+            ],
+        )?;
+        insert_revision(&tx, &note.id, &note.content_hash, "imported")?;
+        insert_event(&tx, &note.id, "imported", "{}")?;
+        queue_index_job(&tx, &note.id, &note.content_hash)?;
+    }
+
+    let attachment_paths = manifest
+        .iter()
+        .filter(|path| !is_note_path(path))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut imported_attachments = 0;
+
+    for attachment_path in &attachment_paths {
+        if attachment_path.is_file() {
+            import_attachment(&tx, root_path, attachment_path, attachments_dir)?;
+            imported_attachments += 1;
+        }
+    }
+
+    for note in &imported_notes {
+        for link in &note.links {
+            let target_path = note
+                .source_path
+                .parent()
+                .unwrap_or(root_path)
+                .join(&link.target);
+            if target_path.is_file() && !is_note_path(&target_path) {
+                let attachment_id =
+                    import_attachment(&tx, root_path, &target_path, attachments_dir)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO note_attachments(note_id, attachment_id, relative_path)
+                     VALUES (?1, ?2, ?3)",
+                    params![note.id, attachment_id, link.target],
+                )?;
+            }
+        }
+    }
+
+    let skipped_files = manifest.len() as i64 - imported_notes.len() as i64 - imported_attachments;
+    tx.execute(
+        "UPDATE import_runs
+         SET status = 'complete',
+             imported_notes = ?1,
+             imported_attachments = ?2,
+             skipped_files = ?3,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?4",
+        params![
+            imported_notes.len() as i64,
+            imported_attachments,
+            skipped_files.max(0),
+            run_id
+        ],
+    )?;
+    tx.commit()?;
+
+    Ok(ImportReport {
+        run_id,
+        imported_notes: imported_notes.len() as i64,
+        imported_attachments,
+        skipped_files: skipped_files.max(0),
+    })
+}
+
+pub fn export_note(connection: &Connection, input: ExportNoteInput) -> Result<ExportReport> {
+    let note = get_note(connection, &input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    let output_root = PathBuf::from(input.path);
+    fs::create_dir_all(&output_root).map_err(io_error)?;
+    let extension = if note.format == "html" { "html" } else { "md" };
+    let file_name = format!("{}.{}", sanitize_file_name(&note.title), extension);
+
+    if input.bundle {
+        let bundle_dir = output_root.join(format!("{}.bundle", sanitize_file_name(&note.title)));
+        fs::create_dir_all(&bundle_dir).map_err(io_error)?;
+        let source_path = bundle_dir.join(&file_name);
+        fs::write(&source_path, &note.content).map_err(io_error)?;
+        fs::write(
+            bundle_dir.join("metadata.json"),
+            note_metadata_json(connection, &note.id)?,
+        )
+        .map_err(io_error)?;
+        fs::write(
+            bundle_dir.join("manifest.json"),
+            format!(
+                "{{\"noteId\":\"{}\",\"format\":\"{}\",\"source\":\"{}\"}}\n",
+                json_escape(&note.id),
+                json_escape(&note.format),
+                json_escape(&file_name)
+            ),
+        )
+        .map_err(io_error)?;
+        return Ok(ExportReport {
+            output_path: bundle_dir.display().to_string(),
+            files_written: 3,
+        });
+    }
+
+    let output_path = output_root.join(file_name);
+    fs::write(&output_path, &note.content).map_err(io_error)?;
+    Ok(ExportReport {
+        output_path: output_path.display().to_string(),
+        files_written: 1,
     })
 }
 
@@ -811,6 +1042,214 @@ fn classify_link(target: &str) -> String {
     }
 }
 
+fn scan_import_manifest(root_path: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let mut stack = vec![root_path.to_path_buf()];
+
+    while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            let entries = fs::read_dir(&path).map_err(io_error)?;
+            for entry in entries {
+                let entry = entry.map_err(io_error)?;
+                let entry_path = entry.path();
+                if entry_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('.'))
+                {
+                    continue;
+                }
+                stack.push(entry_path);
+            }
+        } else {
+            files.push(path);
+        }
+    }
+
+    files.sort();
+    Ok(files)
+}
+
+fn parse_imported_note(_root_path: &Path, path: &Path) -> Result<ImportedNote> {
+    let raw_content = fs::read_to_string(path).map_err(io_error)?;
+    let (frontmatter, content) = parse_frontmatter(&raw_content);
+    let title = frontmatter
+        .iter()
+        .find(|(key, _)| key == "title")
+        .map(|(_, value)| value.to_string())
+        .or_else(|| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| stem.to_string())
+        })
+        .unwrap_or_else(|| "Untitled".to_string());
+    let format = if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
+        "html"
+    } else {
+        "markdown"
+    };
+    let links = extract_links(format, &content);
+    let content_hash = content_hash(&content);
+
+    Ok(ImportedNote {
+        id: Uuid::new_v4().to_string(),
+        source_path: path.to_path_buf(),
+        format: format.to_string(),
+        title,
+        content,
+        content_hash,
+        frontmatter,
+        links: links
+            .into_iter()
+            .filter(|link| link.link_type == "local")
+            .collect(),
+    })
+}
+
+fn parse_frontmatter(content: &str) -> (Vec<(String, String)>, String) {
+    if !content.starts_with("---\n") {
+        return (Vec::new(), content.to_string());
+    }
+
+    let Some(end) = content[4..].find("\n---") else {
+        return (Vec::new(), content.to_string());
+    };
+    let frontmatter_raw = &content[4..4 + end];
+    let body_start = 4 + end + "\n---".len();
+    let body = content[body_start..].trim_start_matches('\n').to_string();
+    let frontmatter = frontmatter_raw
+        .lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            Some((
+                key.trim().to_string(),
+                value.trim().trim_matches('"').to_string(),
+            ))
+        })
+        .collect();
+
+    (frontmatter, body)
+}
+
+fn import_attachment(
+    connection: &Connection,
+    root_path: &Path,
+    attachment_path: &Path,
+    attachments_dir: &Path,
+) -> Result<String> {
+    let bytes = fs::read(attachment_path).map_err(io_error)?;
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let relative_path = attachment_path
+        .strip_prefix(root_path)
+        .unwrap_or(attachment_path)
+        .display()
+        .to_string();
+    let storage_path = attachments_dir.join(&hash[0..2]).join(&hash);
+    fs::create_dir_all(storage_path.parent().unwrap_or(attachments_dir)).map_err(io_error)?;
+
+    if !storage_path.exists() {
+        fs::write(&storage_path, &bytes).map_err(io_error)?;
+    }
+
+    let existing_id = connection
+        .query_row(
+            "SELECT id FROM attachments WHERE content_hash = ?1",
+            params![hash],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    if let Some(id) = existing_id {
+        connection.execute(
+            "UPDATE attachments SET ref_count = ref_count + 1 WHERE id = ?1",
+            params![id],
+        )?;
+        return Ok(id);
+    }
+
+    let id = Uuid::new_v4().to_string();
+    connection.execute(
+        "INSERT INTO attachments(id, content_hash, byte_size, original_path, storage_path)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            id,
+            hash,
+            bytes.len() as i64,
+            relative_path,
+            storage_path.display().to_string()
+        ],
+    )?;
+    Ok(id)
+}
+
+fn note_metadata_json(connection: &Connection, note_id: &str) -> Result<String> {
+    connection.query_row(
+        "SELECT metadata_json FROM notes WHERE id = ?1",
+        params![note_id],
+        |row| row.get(0),
+    )
+}
+
+fn import_metadata_json(root_path: &Path, note: &ImportedNote) -> String {
+    let relative_path = note
+        .source_path
+        .strip_prefix(root_path)
+        .unwrap_or(&note.source_path)
+        .display()
+        .to_string();
+    let frontmatter = note
+        .frontmatter
+        .iter()
+        .map(|(key, value)| format!("\"{}\":\"{}\"", json_escape(key), json_escape(value)))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    format!(
+        "{{\"importPath\":\"{}\",\"frontmatter\":{{{}}}}}",
+        json_escape(&relative_path),
+        frontmatter
+    )
+}
+
+fn is_note_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("md" | "markdown" | "html")
+    )
+}
+
+fn sanitize_file_name(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string();
+
+    if sanitized.is_empty() {
+        "untitled".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn json_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}
+
+fn io_error(error: std::io::Error) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -829,14 +1268,17 @@ mod tests {
                    'note_events',
                    'note_links',
                    'index_jobs',
-                   'index_state'
+                   'index_state',
+                   'attachments',
+                   'note_attachments',
+                   'import_runs'
                  )",
                 [],
                 |row| row.get(0),
             )
             .expect("table count query succeeds");
 
-        assert_eq!(count, 7);
+        assert_eq!(count, 10);
     }
 
     #[test]
@@ -1083,6 +1525,94 @@ mod tests {
             "search exceeded 100ms budget: {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn imports_obsidian_style_vault_and_deduplicates_attachments() {
+        let mut connection = open_memory_database().expect("database opens");
+        let temp_dir = tempfile::tempdir().expect("temp dir exists");
+        let vault = temp_dir.path().join("vault");
+        let assets = vault.join("assets");
+        let attachment_store = temp_dir.path().join("attachments");
+        fs::create_dir_all(&assets).expect("assets dir");
+        fs::write(
+            vault.join("daily.md"),
+            "---\ntitle: Daily Note\n---\n# Daily\n\n![Image](assets/photo.png)\n#journal",
+        )
+        .expect("daily note");
+        fs::write(
+            vault.join("artifact.html"),
+            "<h1>Artifact</h1><a href=\"assets/photo-copy.png\">Copy</a>",
+        )
+        .expect("html artifact");
+        fs::write(assets.join("photo.png"), b"same image").expect("photo");
+        fs::write(assets.join("photo-copy.png"), b"same image").expect("photo copy");
+
+        let report = import_path(&mut connection, &vault, &attachment_store).expect("vault import");
+        assert_eq!(report.imported_notes, 2);
+        assert_eq!(report.imported_attachments, 2);
+
+        let attachment_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))
+            .expect("attachment count");
+        assert_eq!(attachment_count, 1);
+
+        assert_eq!(
+            process_index_jobs(&connection, 10).expect("index import"),
+            2
+        );
+        let results = search_notes(
+            &connection,
+            SearchNotesQuery {
+                query: "Daily".to_string(),
+                limit: Some(10),
+                format: Some("markdown".to_string()),
+                tag: Some("journal".to_string()),
+            },
+        )
+        .expect("search imported note");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn exports_note_source_and_portable_bundle() {
+        let mut connection = open_memory_database().expect("database opens");
+        let note = create_note(
+            &mut connection,
+            CreateNoteInput {
+                title: "Export Me".to_string(),
+                format: "markdown".to_string(),
+                content: "# Export Me".to_string(),
+            },
+        )
+        .expect("note created");
+        let temp_dir = tempfile::tempdir().expect("temp dir exists");
+
+        let source_report = export_note(
+            &connection,
+            ExportNoteInput {
+                id: note.id.clone(),
+                path: temp_dir.path().display().to_string(),
+                bundle: false,
+            },
+        )
+        .expect("source export");
+        assert_eq!(source_report.files_written, 1);
+        assert!(PathBuf::from(source_report.output_path).exists());
+
+        let bundle_report = export_note(
+            &connection,
+            ExportNoteInput {
+                id: note.id,
+                path: temp_dir.path().display().to_string(),
+                bundle: true,
+            },
+        )
+        .expect("bundle export");
+        let bundle_path = PathBuf::from(bundle_report.output_path);
+        assert!(bundle_path.join("Export_Me.md").exists());
+        assert!(bundle_path.join("metadata.json").exists());
+        assert!(bundle_path.join("manifest.json").exists());
     }
 
     fn seed_note_metadata(connection: &mut Connection, id: &str, format: &str, content: &str) {

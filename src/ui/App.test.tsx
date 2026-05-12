@@ -8,15 +8,17 @@ describe("App core notes", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the Phase 3 local-first shell", async () => {
+  it("renders the Phase 4 local-first shell", async () => {
     render(<App />);
 
     expect(screen.getByText("o-note")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(await screen.findByText("HTML artifact workflow")).toBeInTheDocument();
-    expect(screen.getByText(/Search uses the content index/)).toBeInTheDocument();
+    expect(screen.getByText(/vault transfer keeps source files/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Split" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Sandboxed")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Import path" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Export path" })).toBeInTheDocument();
   });
 
   it("creates, edits, renames, and deletes a Markdown note", async () => {

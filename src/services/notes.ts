@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CreateNoteInput,
+  ExportNoteInput,
+  ExportReport,
   IndexHealth,
+  ImportPathInput,
+  ImportReport,
   NoteDetail,
   NoteSummary,
   SearchNotesQuery,
@@ -23,6 +27,8 @@ type NotesApi = {
   deleteNote(id: string): Promise<void>;
   searchNotes(query: SearchNotesQuery): Promise<SearchResult[]>;
   indexHealth(): Promise<IndexHealth>;
+  importPath(input: ImportPathInput): Promise<ImportReport>;
+  exportNote(input: ExportNoteInput): Promise<ExportReport>;
 };
 
 declare global {
@@ -43,6 +49,8 @@ function tauriNotesApi(): NotesApi {
     deleteNote: (id) => invoke("delete_note", { id }),
     searchNotes: (query) => invoke("search_notes", { query }),
     indexHealth: () => invoke("index_health"),
+    importPath: (input) => invoke("import_path", { input }),
+    exportNote: (input) => invoke("export_note", { input }),
   };
 }
 
@@ -111,6 +119,20 @@ function memoryNotesApi(): NotesApi {
     },
     async indexHealth() {
       return { pending: 0, indexed: notes.length, failed: 0 };
+    },
+    async importPath() {
+      return {
+        runId: "browser-memory-import",
+        importedNotes: 0,
+        importedAttachments: 0,
+        skippedFiles: 0,
+      };
+    },
+    async exportNote(input) {
+      return {
+        outputPath: input.path,
+        filesWritten: input.bundle ? 3 : 1,
+      };
     },
   };
 }
