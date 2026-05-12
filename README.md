@@ -23,3 +23,4 @@ See:
 - [Development Rules](docs/002-development-rules.md)
 - [Feature Roadmap](docs/003-feature-roadmap.md)
 - [HTML Artifact Requirements](docs/004-html-artifact-requirements.md)
+- [UI/UX Direction](docs/005-ui-ux-direction.md)

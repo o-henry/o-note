@@ -29,6 +29,20 @@ The app exists because large Markdown-file vaults can become slow to index and n
 - Rendering: sanitized Markdown and sandboxed HTML iframe previews.
 - Tests: Rust tests, Vitest, Testing Library, Playwright.
 
+## UI/UX Direction
+
+Use the user's selected o-rade direction for UI work:
+
+- `$orade`
+- `$orade-bullpen-faithful-ui`
+- `$orade-axi-precision-board`
+- `$orade-open-design-reference`
+- `$orade-open-design-terminal`
+
+The active visual target is Bullpen-like: sidebar shell, zero-radius surfaces, flat borders, monochrome/dark restraint, mono uppercase microcopy, rectangular or underline tabs, dense report/source panels, and no generic AI dashboard aesthetics.
+
+Before production UI implementation, inspect actual Bullpen source files or screenshots and write a local style contract. Do not claim visual fidelity without browser verification.
+
 ## Engineering Rules
 
 - Prefer boring durable data models.

@@ -3,6 +3,7 @@
 ## Phase 0: Foundation
 
 - Confirm product brief and technical stack.
+- Confirm Bullpen-inspired UI/UX direction and style contract.
 - Create app scaffold.
 - Establish lint, format, test, and CI.
 - Create SQLite schema and migration system.
