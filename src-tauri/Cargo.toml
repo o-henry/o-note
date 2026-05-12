@@ -1,0 +1,22 @@
+[package]
+name = "o-note"
+version = "0.1.0"
+description = "Fast local notes with sandboxed HTML artifacts"
+authors = ["Henry"]
+edition = "2021"
+
+[lib]
+name = "o_note_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

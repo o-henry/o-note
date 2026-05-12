@@ -1,5 +1,6 @@
 .DS_Store
 node_modules/
+.pnpm-store/
 dist/
 build/
 .vite/
@@ -8,7 +9,9 @@ build/
 .env.*
 !.env.example
 target/
+src-tauri/gen/
 coverage/
 playwright-report/
 test-results/
 *.log
+.bench-fixtures/
